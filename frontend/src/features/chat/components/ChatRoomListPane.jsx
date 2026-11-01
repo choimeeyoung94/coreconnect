@@ -9,12 +9,17 @@ function ChatRoomListPane({
   // 정렬 상태: 기본값은 최신 메시지부터 (내림차순)
   const sortOrder = 'desc';
   
-  // 채팅방 목록에서 초 단위를 제거하는 헬퍼 함수
-  const formatTimeWithoutSeconds = (time) => {
+  // 채팅방 목록의 시간 표시: "오후 09시 00분", 오늘이 아니면 앞에 날짜를 붙인다
+  const formatLastMessageTime = (time) => {
     const formatted = formatTime(time);
     if (!formatted) return "";
-    // "2025-11-27 12:35:51" 형식에서 ":51" 부분 제거
-    return formatted.replace(/:\d{2}$/, "");
+    const today = formatted.match(/^(오전|오후) (\d{2}):(\d{2})$/);
+    if (today) return `${today[1]} ${today[2]}시 ${today[3]}분`;
+    const past = formatted.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2})/);
+    if (!past) return formatted;
+    const hour = Number(past[2]);
+    const hour12 = String(hour % 12 || 12).padStart(2, "0");
+    return `${past[1]} ${hour < 12 ? "오전" : "오후"} ${hour12}시 ${past[3]}분`;
   };
   // 참여자 수 정보를 저장할 state: { [roomId]: 참여자수 }
   const [roomMemberCounts, setRoomMemberCounts] = useState({});
@@ -224,29 +229,17 @@ function ChatRoomListPane({
                     >
                       {room.lastMessageFileYn ? "이미지 업로드" : (room.lastMessageContent ? room.lastMessageContent : "")}
                     </Typography>
-                    <Box component="span" sx={{ display: "flex", alignItems: "center", mt: 0.5 }}>
-                      <Typography
-                        component="span"
-                        sx={{
-                          fontSize: 13,
-                          color: "#9495a0",
-                          mr: 2
-                        }}
-                      >
-                        {room.lasMessageTime ? formatTimeWithoutSeconds(room.lasMessageTime) : ""}
-                      </Typography>
-                      {room.lastSenderName && (
-                        <Typography
-                          component="span"
-                          sx={{
-                            fontSize: 13,
-                            color: "#9495a0"
-                          }}
-                        >
-                          {room.lastSenderName}
-                        </Typography>
-                      )}
-                    </Box>
+                    <Typography
+                      component="span"
+                      sx={{
+                        fontSize: 13,
+                        color: "#9495a0",
+                        display: "block",
+                        mt: 0.5
+                      }}
+                    >
+                      {room.lasMessageTime ? formatLastMessageTime(room.lasMessageTime) : ""}
+                    </Typography>
                   </Box>
                 }
               />

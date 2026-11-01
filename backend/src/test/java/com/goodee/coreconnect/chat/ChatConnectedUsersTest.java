@@ -10,6 +10,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
 import com.goodee.coreconnect.chat.entity.Chat;
 import com.goodee.coreconnect.chat.entity.ChatRoom;
 import com.goodee.coreconnect.chat.repository.ChatRepository;
+import com.goodee.coreconnect.chat.repository.NotificationRepository;
 import com.goodee.coreconnect.chat.service.ChatRoomService;
 import com.goodee.coreconnect.security.jwt.JwtProvider;
 import com.goodee.coreconnect.support.AbstractIntegrationTest;
@@ -66,6 +68,7 @@ class ChatConnectedUsersTest extends AbstractIntegrationTest {
   @Autowired private UserRepository userRepository;
   @Autowired private ChatRoomService chatRoomService;
   @Autowired private ChatRepository chatRepository;
+  @Autowired private NotificationRepository notificationRepository;
 
   private final WebSocketStompClient stompClient = newClient();
 
@@ -154,6 +157,11 @@ class ChatConnectedUsersTest extends AbstractIntegrationTest {
     assertThat(inbox.poll(5, TimeUnit.SECONDS)).isNotNull();
     Chat chat = savedChat(room);
     assertThat(chatRoomService.countUnreadByChatId(chat.getId())).isEqualTo(1);
+
+    Awaitility.await().atMost(5, TimeUnit.SECONDS)
+        .until(() -> !notificationRepository.findUnreadByUserId(b.getId()).isEmpty());
+    assertThat(notificationRepository.findUnreadByUserId(b.getId()).get(0).getNotificationMessage())
+        .isEqualTo("새로운 메시지가 있습니다");
   }
 
   /** 방송은 커밋 뒤에 나가므로 받은 직후 조회하면 저장되어 있어야 한다 */

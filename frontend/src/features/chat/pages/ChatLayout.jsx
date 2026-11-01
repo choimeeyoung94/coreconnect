@@ -29,6 +29,8 @@ import http from "../../../api/http";
 
 // ===================== 시간 및 유저명 유틸 함수 =====================
 // 시간 포맷팅 유틸 (한국 시간 기준)
+const READ_BATCH_DELAY_MS = 300;
+
 function formatTime(sendAt) {
   if (!sendAt) return "";
   
@@ -130,6 +132,7 @@ export default function ChatLayout() {
 
   // STOMP 콜백(연결 시점에 만들어짐)에서도 지금 메시지 목록을 보도록 최신 값을 ref에 둠
   const messagesRef = useRef([]);
+  const readBatchRef = useRef({ timer: null, roomId: null, chatId: 0 });
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // 화면이 받은 마지막 메시지 번호. 받지 못한 메시지까지 읽음이 되지 않도록 읽음 처리에 함께 보낸다
@@ -497,7 +500,7 @@ export default function ChatLayout() {
                 });
                 return {
                   ...room,
-                  unreadCount: 0 // 접속 중이므로 읽음 처리됨
+                  unreadCount: document.visibilityState === "visible" ? 0 : room.unreadCount // 화면을 보고 있으면 읽는 중
                 };
               } else {
                 // ⭐ 선택되지 않은 방인 경우: 해당 방의 모든 메시지의 unreadCount를 합산
@@ -831,9 +834,7 @@ export default function ChatLayout() {
 
       // 화면이 보이는 동안 받은 메시지만 읽음 처리한다. 탭이 숨겨져 있으면 돌아올 때 처리한다
       if (document.visibilityState === "visible") {
-        markRoomMessagesAsRead(roomIdNum, numMsgId).catch((error) => {
-          console.error("[ChatLayout] 메시지 수신 후 읽음 처리 실패:", error);
-        });
+        scheduleMarkRead(roomIdNum, numMsgId);
       }
 
       // ⭐ 다른 사람이 보낸 새 메시지의 unreadCount가 있으면 그대로 사용 (백엔드에서 실시간 계산된 값)
@@ -945,8 +946,8 @@ export default function ChatLayout() {
               lastMessageFileYn: msg.fileYn || false, // 마지막 메시지의 파일 첨부 여부
               fileYn: msg.fileYn,
               sendAt: msg.sendAt,
-              // ⭐ 현재 선택된 방이므로 접속 중인 사용자는 읽음 처리되므로 unreadCount를 0으로 설정
-              unreadCount: 0
+              // 화면을 보고 있으면 읽는 중이므로 0. 숨겨져 있으면 아래에서 1 늘린다
+              unreadCount: document.visibilityState === "visible" ? 0 : room.unreadCount
             };
           }
           return room;
@@ -1012,34 +1013,12 @@ export default function ChatLayout() {
               isCurrentlySelected
             });
           }
-          // ⭐ 현재 선택된 방이 아닌 경우에만 unreadCount 증가
-          // (현재 선택된 방이면 이미 메시지를 보고 있으므로 읽음 처리됨)
-          else if (!isCurrentlySelected) {
-            // ⭐ 새로운 메시지가 왔으므로 unreadCount 증가
-            // 백엔드에서 받은 unreadCount가 있으면 그것을 사용하고, 없으면 +1
-            newUnreadCount = msg.unreadCount != null ? Number(msg.unreadCount) : currentUnreadCount + 1;
-            console.log("📨 [ChatLayout] 다른 방의 새 메시지 수신 - unreadCount 증가:", {
-              roomId: roomIdNum,
-              roomName: room.roomName,
-              이전unreadCount: currentUnreadCount,
-              새로운unreadCount: newUnreadCount,
-              isMyMessage: false,
-              isCurrentlySelected: false,
-              msgUnreadCount: msg.unreadCount
-            });
-          }
-          // ⭐ 현재 선택된 방인 경우: 백엔드에서 받은 unreadCount가 있으면 그것을 사용
-          else if (msg.unreadCount != null) {
-            newUnreadCount = Number(msg.unreadCount);
-            console.log("📨 [ChatLayout] 현재 선택된 방의 메시지 - unreadCount 업데이트:", {
-              roomId: roomIdNum,
-              roomName: room.roomName,
-              이전unreadCount: currentUnreadCount,
-              새로운unreadCount: newUnreadCount,
-              isMyMessage: false,
-              isCurrentlySelected: true,
-              msgUnreadCount: msg.unreadCount
-            });
+          // 지금 화면으로 보고 있는 방이면 내가 읽는 중이므로 0, 아니면 내가 안 읽은 수를 1 늘린다
+          // msg.unreadCount는 이 메시지를 안 읽은 사람 수라서 목록 숫자로 쓰면 안 된다
+          else if (isCurrentlySelected && document.visibilityState === "visible") {
+            newUnreadCount = 0;
+          } else {
+            newUnreadCount = currentUnreadCount + 1;
           }
 
           // ⭐ 중요: 자신이 보낸 메시지인 경우에도 메시지 내용과 시간은 항상 업데이트되어야 함
@@ -1194,6 +1173,26 @@ export default function ChatLayout() {
       alert("메시지 전송 중 오류가 발생했습니다.");
     }
   };
+
+  // 메시지가 연달아 와도 읽음 요청은 0.3초에 한 번만 보낸다. 마지막으로 받은 번호까지 한 번에 처리된다
+  const scheduleMarkRead = (roomId, chatId) => {
+    readBatchRef.current.roomId = roomId;
+    readBatchRef.current.chatId = Math.max(readBatchRef.current.chatId, chatId);
+    if (readBatchRef.current.timer) return;
+    readBatchRef.current.timer = setTimeout(() => {
+      const { roomId: targetRoomId, chatId: upToChatId } = readBatchRef.current;
+      readBatchRef.current = { timer: null, roomId: null, chatId: 0 };
+      markRoomMessagesAsRead(targetRoomId, upToChatId).catch((error) => {
+        console.error("[ChatLayout] 메시지 수신 후 읽음 처리 실패:", error);
+      });
+    }, READ_BATCH_DELAY_MS);
+  };
+
+  // 방을 옮기면 예약된 읽음 요청을 취소한다. 새 방은 입장할 때 읽음 처리된다
+  useEffect(() => () => {
+    clearTimeout(readBatchRef.current.timer);
+    readBatchRef.current = { timer: null, roomId: null, chatId: 0 };
+  }, [selectedRoomId]);
 
   // 숨겨진 탭으로 돌아오면 그동안 받은 메시지를 읽음 처리한다
   useEffect(() => {

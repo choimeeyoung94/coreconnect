@@ -79,6 +79,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         }
         log.info("🔥 [WebSocketConfig] 허용된 Origins: {}", java.util.Arrays.toString(origins));
         
+        // 한 연결에서 온 메시지를 도착 순서대로 처리한다. 없으면 여러 스레드가 동시에 처리해 연달아 보낸 메시지의 순서가 뒤바뀐다
+        registry.setPreserveReceiveOrder(true);
+
         // 엔드포인트 경로, allow origins 등 설정
         registry.addEndpoint("/ws/chat") // 프론트엔드 엔드포인트와 일치해야 한다
                 .setAllowedOrigins(origins)
@@ -116,6 +119,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.enableSimpleBroker("/topic", "/queue");
         log.info("🔥 [WebSocketConfig] SimpleBroker 활성화: /topic, /queue");
         // 클라이언트가 /app으로 시작하는 주소로 send한 메시지는 @MessageMapping 대상으로 전달
+        // 한 연결로 내보내는 메시지도 보낸 순서를 지킨다
+        registry.setPreservePublishOrder(true);
         registry.setApplicationDestinationPrefixes("/app");
         log.info("🔥 [WebSocketConfig] ApplicationDestinationPrefixes 설정: /app");
         log.info("🔥 [WebSocketConfig] 메시지 브로커 설정 완료");

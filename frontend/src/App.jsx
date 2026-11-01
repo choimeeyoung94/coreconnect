@@ -18,7 +18,7 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { getMyPendingApprovalCount } from "./features/dashboard/api/dashboardAPI";
 import { fetchChatRoomsLatest } from "./features/chat/api/ChatRoomApi";
 // ----------- 알림 API import 추가 -----------
-import { getAllUnreadNotifications } from "./features/notification/api/notificationAPI";
+import { getBellUnreadNotifications } from "./features/notification/api/notificationAPI";
 import { useRealtimeNotifications } from "./features/notification/RealtimeNotificationProvider";
 // -----------------------------------------------
 
@@ -180,7 +180,7 @@ function App() {
   // 알림 미읽은 개수 새로고침
   const refreshNotificationCount = useCallback(async () => {
     try {
-      const allNotifications = await getAllUnreadNotifications();
+      const allNotifications = await getBellUnreadNotifications();
       const count = Array.isArray(allNotifications) ? allNotifications.length : 0;
       setNotificationUnreadCount(count);
     } catch (e) {

@@ -90,6 +90,9 @@ import lombok.extern.slf4j.Slf4j;
 @RestController
 @SecurityRequirement(name = "bearerAuth") // 이게 핵심!
 public class ChatMessageController {
+
+	/** 채팅 알림 문구. 업무 내용이 노출되지 않도록 메시지 내용과 파일 이름은 넣지 않는다 */
+	private static final String CHAT_NOTIFICATION_MESSAGE = "새로운 메시지가 있습니다";
 	private final ChatRoomService chatRoomService;
     private final ChatService chatService;
     private final UserRepository userRepository;
@@ -411,18 +414,7 @@ public class ChatMessageController {
 	                    log.info("[sendMessage] 알림을 받을 참여자가 없습니다 (발신자 및 접속 중인 사용자만 있음) - roomId: {}, 접속중인사용자수: {}", 
 	                            req.getRoomId(), connectedUserIds.size());
 	                } else {
-	                    // 채팅방 이름 가져오기
-	                    String roomName = saved.getChatRoom() != null ? saved.getChatRoom().getRoomName() : "채팅방";
-	                    
-	                    // 알림 메시지 생성 (메시지 내용이 너무 길면 잘라서 표시)
-	                    String messageContent = saved.getMessageContent();
-	                    if (messageContent != null && messageContent.length() > 50) {
-	                        messageContent = messageContent.substring(0, 50) + "...";
-	                    }
-	                    String notificationMessage = roomName + " 채팅방: " + authUser.getName() + "님의 메시지";
-	                    if (messageContent != null && !messageContent.trim().isEmpty()) {
-	                        notificationMessage += " - " + messageContent;
-	                    }
+	                    String notificationMessage = CHAT_NOTIFICATION_MESSAGE;
 	                    
 	                    log.info("[sendMessage] 알림 전송 시작 - recipientCount: {} (접속 중 제외), 접속중인사용자수: {}, message: {}", 
 	                            recipientIds.size(), connectedUserIds.size(), notificationMessage);
@@ -897,14 +889,7 @@ public class ChatMessageController {
 					log.info("[uploadFileMessage] 알림을 받을 참여자가 없습니다 (발신자 및 접속 중인 사용자만 있음) - roomId: {}, 접속중인사용자수: {}", 
 							roomId, connectedUserIds.size());
 				} else {
-					// 채팅방 이름 가져오기
-					String roomName = chat.getChatRoom() != null ? chat.getChatRoom().getRoomName() : "채팅방";
-					
-					// 알림 메시지 생성
-					String notificationMessage = roomName + " 채팅방: " + sender.getName() + "님이 파일을 전송했습니다";
-					if (uploadFile.getOriginalFilename() != null) {
-						notificationMessage += " (" + uploadFile.getOriginalFilename() + ")";
-					}
+					String notificationMessage = CHAT_NOTIFICATION_MESSAGE;
 					
 					log.info("[uploadFileMessage] 알림 전송 시작 - recipientCount: {} (접속 중 제외), 접속중인사용자수: {}, message: {}", 
 							recipientIds.size(), connectedUserIds.size(), notificationMessage);
@@ -1141,16 +1126,7 @@ public class ChatMessageController {
 					log.info("[uploadMultipleFileMessage] 알림을 받을 참여자가 없습니다 (발신자 및 접속 중인 사용자만 있음) - roomId: {}, 접속중인사용자수: {}", 
 							roomId, connectedUserIds.size());
 				} else {
-					// 채팅방 이름 가져오기
-					String roomName = chat.getChatRoom() != null ? chat.getChatRoom().getRoomName() : "채팅방";
-					
-					// 알림 메시지 생성
-					String notificationMessage = roomName + " 채팅방: " + sender.getName() + "님이 파일을 전송했습니다";
-					if (fileEntities.size() > 1) {
-						notificationMessage += " (" + fileEntities.size() + "개 파일)";
-					} else if (!fileEntities.isEmpty()) {
-						notificationMessage += " (" + fileEntities.get(0).getFileName() + ")";
-					}
+					String notificationMessage = CHAT_NOTIFICATION_MESSAGE;
 					
 					log.info("[uploadMultipleFileMessage] 알림 전송 시작 - recipientCount: {} (접속 중 제외), 접속중인사용자수: {}, message: {}", 
 							recipientIds.size(), connectedUserIds.size(), notificationMessage);
@@ -1969,35 +1945,37 @@ public class ChatMessageController {
     	
     	// ⭐ WebSocket을 통해 실시간으로 unreadCount 업데이트 알림
     	// 각 메시지의 업데이트된 unreadCount를 전송 (발신자에게만 알림)
-    	for (Integer chatId : readChatIds) {
-    	    Optional<Chat> chatOpt = chatRepository.findById(chatId);
-    	    if (chatOpt.isPresent()) {
-    	        Chat chat = chatOpt.get();
+    	if (!readChatIds.isEmpty()) {
+    	    // 안 읽은 사람 수를 메시지마다 조회하지 않고 한 번에 조회한다. 결과에 없는 메시지는 0
+    	    Map<Integer, Long> unreadByChatId = new HashMap<>();
+    	    for (Object[] row : chatMessageReadStatusRepository.countUnreadByChatIds(readChatIds)) {
+    	        unreadByChatId.put((Integer) row[0], (Long) row[1]);
+    	    }
+
+    	    List<Chat> chats = new ArrayList<>(chatRepository.findAllById(readChatIds));
+    	    chats.sort(java.util.Comparator.comparing(Chat::getId));
+    	    for (Chat chat : chats) {
+    	        Integer chatId = chat.getId();
     	        // ⭐ 메시지 발신자 정보 확인
     	        Integer senderId = chat.getSender() != null ? chat.getSender().getId() : null;
     	        String senderEmail = chat.getSender() != null ? chat.getSender().getEmail() : null;
-    	        
-    	        // ⭐ unreadCount를 실시간으로 계산 (DB 저장값이 아닌 실제 읽지 않은 사람 수)
-    	        int realUnreadCount = chatMessageReadStatusRepository.countUnreadByChatId(chatId);
-    	        
+
     	        // ⭐ unreadCount 업데이트 메시지 전송 (발신자 정보 및 읽은 사람 정보 포함)
     	        Map<String, Object> updateMessage = new HashMap<>();
     	        updateMessage.put("type", "UNREAD_COUNT_UPDATE");
     	        updateMessage.put("chatId", chatId);
-    	        updateMessage.put("unreadCount", realUnreadCount); // ⭐ 실시간 계산된 값 사용
+    	        updateMessage.put("unreadCount", unreadByChatId.getOrDefault(chatId, 0L).intValue()); // ⭐ 실시간 계산된 값 사용
     	        updateMessage.put("roomId", roomId);
     	        updateMessage.put("senderId", senderId); // ⭐ 발신자 ID 추가
     	        updateMessage.put("senderEmail", senderEmail); // ⭐ 발신자 이메일 추가
     	        updateMessage.put("viewerId", user.getId()); // ⭐ 읽은 사람 ID 추가 (디버깅용)
     	        updateMessage.put("viewerEmail", email); // ⭐ 읽은 사람 이메일 추가 (디버깅용)
-    	        
+
     	        // ⭐ 모든 참여자에게 전송 (모든 참여자가 실시간으로 unreadCount 업데이트)
-	        chatPubSubService.publish("/topic/chat.room." + roomId, updateMessage);
-    	        log.info("[markRoomMessagesAsRead] unreadCount 업데이트 알림 전송 - chatId: {}, unreadCount: {} (실시간 계산), senderId: {}, senderEmail: {}", 
-    	                chatId, realUnreadCount, senderId, senderEmail);
+    	        chatPubSubService.publish("/topic/chat.room." + roomId, updateMessage);
     	    }
     	}
-    	
+
     	return ResponseEntity.ok().build();    	
     }
     

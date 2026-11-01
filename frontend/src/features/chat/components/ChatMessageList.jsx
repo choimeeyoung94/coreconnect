@@ -10,15 +10,15 @@ import { UserProfileContext } from "../../../App";
 const UNREAD_DISPLAY_DELAY_MS = 2000;
 
 function UnreadCount({ count, sendAt }) {
-  const age = Date.now() - new Date(sendAt).getTime();
-  const [visible, setVisible] = useState(!(age < UNREAD_DISPLAY_DELAY_MS));
+  // 보낸 시각은 초 단위로 내려오므로 최대 1초 오래되어 보인다. 그만큼 더해서 방금 보낸 메시지인지 판단한다
+  const isRecent = Date.now() - new Date(sendAt).getTime() < UNREAD_DISPLAY_DELAY_MS + 1000;
+  const [visible, setVisible] = useState(!isRecent);
 
   useEffect(() => {
     if (visible) return undefined;
-    const delay = Math.min(UNREAD_DISPLAY_DELAY_MS, UNREAD_DISPLAY_DELAY_MS - age);
-    const timer = setTimeout(() => setVisible(true), delay);
+    const timer = setTimeout(() => setVisible(true), UNREAD_DISPLAY_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [visible, age]);
+  }, [visible]);
 
   if (!visible) return null;
   return (
@@ -266,7 +266,8 @@ function ChatMessageList({
                     gap: 0.5,
                   }}
                 >
-                  {msg.unreadCount != null && msg.unreadCount > 0 && (
+                  {/* 안 읽은 수는 보낸 사람 화면에만 보여준다 */}
+                  {isMyMessage && msg.unreadCount != null && msg.unreadCount > 0 && (
                     <UnreadCount count={msg.unreadCount} sendAt={msg.sendAt} />
                   )}
                   <Typography sx={{ fontSize: 11, color: "#999" }}>

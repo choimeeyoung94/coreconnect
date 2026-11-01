@@ -127,6 +127,23 @@ public interface ChatMessageReadStatusRepository extends JpaRepository<ChatMessa
     @Query("SELECT c FROM ChatMessageReadStatus c WHERE c.chat.id = :chatId AND c.user.id = :userId")
     Optional<ChatMessageReadStatus> findReadStatusByChatIdAndUserId(@Param("chatId") Integer chatId, @Param("userId") Integer userId);
     
+    // 해당 채팅방의 내가 안읽은 메시지 번호 (upToChatId가 있으면 그 번호까지만). 항상 번호 순서
+    @Query("SELECT r.chat.id FROM ChatMessageReadStatus r " +
+           "WHERE r.user.id = :userId AND r.chat.chatRoom.id = :roomId " +
+           "AND (r.readYn = false OR r.readYn IS NULL) " +
+           "AND (:upToChatId IS NULL OR r.chat.id <= :upToChatId) " +
+           "ORDER BY r.chat.id")
+    List<Integer> findUnreadChatIds(@Param("roomId") Integer roomId, @Param("userId") Integer userId, @Param("upToChatId") Integer upToChatId);
+
+    // 여러 메시지를 UPDATE 문 하나로 읽음 처리. 요청이 겹쳐도 교착 상태가 나지 않도록 메시지 번호 순서로 수정한다
+    @Modifying
+    @Query(value = "UPDATE chat_message_read_status " +
+                   "SET chat_message_read_status_read_yn = 1, chat_message_read_status_read_at = :now " +
+                   "WHERE user_id = :userId AND chat_message_id IN (:chatIds) " +
+                   "AND (chat_message_read_status_read_yn = 0 OR chat_message_read_status_read_yn IS NULL) " +
+                   "ORDER BY chat_message_id", nativeQuery = true)
+    int markReadByChatIds(@Param("userId") Integer userId, @Param("chatIds") List<Integer> chatIds, @Param("now") java.time.LocalDateTime now);
+
     // 단일 메시지 읽음 상태 업데이트 (특정 사용자가 특정 메시지를 읽음)
     @Modifying
     @Transactional
