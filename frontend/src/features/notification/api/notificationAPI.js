@@ -35,6 +35,14 @@ export async function getAllUnreadNotifications() {
 }
 
 /** 알림 읽음 처리 (채팅·결재·메일·일정 공통, 서버 NotificationController) */
+// 종 아이콘용 안 읽은 알림. 채팅 알림은 상단 채팅 아이콘에서만 보여준다
+export async function getBellUnreadNotifications() {
+  const notifications = await getAllUnreadNotifications();
+  return Array.isArray(notifications)
+    ? notifications.filter((notif) => notif.notificationType?.toUpperCase() !== "CHAT")
+    : [];
+}
+
 export async function markNotificationAsRead(notificationId) {
   const res = await http.put(`/notification/${notificationId}/read`);
   return res.data;

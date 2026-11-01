@@ -152,6 +152,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Inte
 			+ "LEFT JOIN FETCH n.chat c LEFT JOIN FETCH c.chatRoom "
 			+ "WHERE n.user.id = :userId AND (n.notificationDeletedYn = false OR n.notificationDeletedYn IS NULL) "
 			+ "AND (:unreadOnly = false OR n.notificationReadYn = false) "
+			+ "AND n.notificationType <> com.goodee.coreconnect.common.notification.enums.NotificationType.CHAT " // 채팅 알림은 상단 채팅 아이콘에서만
 			+ "ORDER BY n.notificationSentAt DESC, n.id DESC")
 	org.springframework.data.domain.Slice<Notification> findPageForUser(@Param("userId") Integer userId,
 			@Param("unreadOnly") boolean unreadOnly, org.springframework.data.domain.Pageable pageable);

@@ -50,10 +50,6 @@ export default function LoginPage() {
             component="img" 
             src="/coreconnect-logo.png" 
             alt="logo" 
-            onError={(e) => {
-              // 로고 로드 실패 시 vite.svg로 fallback
-              e.target.src = "/vite.svg";
-            }}
             sx={{ height: 70 }} 
           />
           <Typography variant="h3" fontWeight={500}>

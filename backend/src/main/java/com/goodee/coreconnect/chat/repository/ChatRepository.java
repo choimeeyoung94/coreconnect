@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -160,4 +161,9 @@ public interface ChatRepository extends JpaRepository<Chat, Integer> {
            "LEFT JOIN FETCH c.sender " +
            "WHERE c.id = :chatId")
     Chat findByIdWithMessageFiles(@Param("chatId") Integer chatId);
+
+    // 읽음 처리된 메시지들의 unreadCount를 UPDATE 문 하나로 1씩 줄인다
+    @Modifying
+    @Query("UPDATE Chat c SET c.unreadCount = c.unreadCount - 1 WHERE c.id IN :chatIds AND c.unreadCount > 0")
+    int decreaseUnreadCount(@Param("chatIds") List<Integer> chatIds);
 }

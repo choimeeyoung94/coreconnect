@@ -626,106 +626,16 @@ private final UserRepository userRepository;
 	public List<Integer> markMessagesAsRead(Integer roomId, Integer userId, Integer upToChatId) {
 	    log.info("[markMessagesAsRead] 읽음 처리 시작 - roomId: {}, userId: {}, upToChatId: {}", roomId, userId, upToChatId);
 	    
-	    // 1. 해당 채팅방에서 내가 안읽은 메시지 상태 전부 조회
-	    List<ChatMessageReadStatus> unreadStatuses =
-	        chatMessageReadStatusRepository.findUnreadMessagesByRoomIdAndUserId(roomId, userId);
-	    
-	    log.info("[markMessagesAsRead] 안읽은 메시지 수: {}", unreadStatuses.size());
-
-	    // ⭐ 읽음 처리된 메시지 ID 리스트 (unreadCount 업데이트용)
-	    List<Integer> readChatIds = new ArrayList<>();
-
-	    // 2. 상태를 모두 읽음 처리 및 시간 업데이트
-	    for (ChatMessageReadStatus status : unreadStatuses) {
-	    	// 화면이 받지 못한 메시지는 읽음으로 바꾸지 않는다
-	    	if (upToChatId != null && status.getChat() != null && status.getChat().getId() > upToChatId) {
-	    		continue;
-	    	}
-	    	// 확실히 안읽음 상태일 때만 markRead() 수행
-	    	if (Boolean.FALSE.equals(status.getReadYn()) && status.getReadAt() == null) {
-	    		status.markRead();// 내부적으로 readYn = true, readAt= now로 세팅
-	    		// ⭐ 배포 환경에서 즉시 DB 반영을 위해 saveAndFlush 사용
-	    		ChatMessageReadStatus saved = chatMessageReadStatusRepository.saveAndFlush(status);
-	    		
-	    		log.debug("[markMessagesAsRead] 읽음 처리 완료 - chatId: {}, userId: {}, readYn: {}, readAt: {}", 
-	    		        saved.getChat() != null ? saved.getChat().getId() : null, 
-	    		        saved.getUser() != null ? saved.getUser().getId() : null,
-	    		        saved.getReadYn(), saved.getReadAt());
-	    		
-	    		// ⭐ 읽음 처리된 메시지 ID 추가
-	    		if (status.getChat() != null && status.getChat().getId() != null) {
-	    			readChatIds.add(status.getChat().getId());
-	    		}
-	    	}
-	    	
-	    	// ===== 질문 1: 왜 두 번 saveAndFlush()를 하나요? =====
-
-	    	// 답변:
-	    	// - 첫 번째: 정상적인 안읽음 상태 처리 (readYn=false, readAt=null)
-	    	// - 두 번째: 비정상적인 불일치 상태 수정 (readYn=false, readAt≠null)
-	    	// → 서로 다른 조건에서 실행됨! (동시에 실행 안 됨)
-
-	    	// ===== 질문 2: 불일치 row 강제 동기화란? =====
-
-	    	// 답변:
-	    	// - readAt(읽은 시간)은 있는데 readYn(읽음 여부)가 false인 비정상 상태
-	    	// - 논리적 모순: "안 읽었는데 읽은 시간이 있다?"
-	    	// - 원인: 동시성 문제, 트랜잭션 롤백, DB 수정 실수, 버그 등
-	    	// - 해결: 자동으로 readYn을 true로 수정하여 정합성 복구
-
-	    	// ===== 왜 이렇게 하나요? =====
-
-	    	// 1️⃣ 방어적 프로그래밍
-//	    	    - 예상치 못한 상황에도 시스템이 자동으로 복구
-
-	    	// 2️⃣ 데이터 정합성 보장
-//	    	    - 불일치 상태를 방치하지 않고 즉시 수정
-
-	    	// 3️⃣ 시스템 신뢰성 향상
-//	    	    - 버그나 동시성 문제로 인한 영향 최소화
-	    	// 불일치 row 강제 동기화 (optional)
-	        if (status.getReadAt() != null && Boolean.FALSE.equals(status.getReadYn())) {
-	            status.markRead();
-	            // ⭐ 배포 환경에서 즉시 DB 반영을 위해 saveAndFlush 사용
-	            ChatMessageReadStatus saved = chatMessageReadStatusRepository.saveAndFlush(status);
-	            
-	            log.debug("[markMessagesAsRead] 불일치 상태 동기화 완료 - chatId: {}, userId: {}, readYn: {}, readAt: {}", 
-	                    saved.getChat() != null ? saved.getChat().getId() : null, 
-	                    saved.getUser() != null ? saved.getUser().getId() : null,
-	                    saved.getReadYn(), saved.getReadAt());
-	            
-	            // ⭐ 읽음 처리된 메시지 ID 추가
-	            if (status.getChat() != null && status.getChat().getId() != null) {
-	            	readChatIds.add(status.getChat().getId());
-	            }
-	        }
+	    // 1. 읽음 처리할 메시지 번호 조회 (화면이 받지 못한 메시지는 제외)
+	    List<Integer> readChatIds = chatMessageReadStatusRepository.findUnreadChatIds(roomId, userId, upToChatId);
+	    if (readChatIds.isEmpty()) {
+	        return readChatIds;
 	    }
-	    
-	    // ⭐ ChatMessageReadStatus 읽음 처리 후 즉시 DB에 반영 (추가 flush로 확실히 반영)
-	    // 배포 환경에서 트랜잭션 커밋 보장
-	    chatMessageReadStatusRepository.flush();
-	    
-	    log.info("[markMessagesAsRead] 읽음 처리된 메시지 수: {}, chatIds: {}", readChatIds.size(), readChatIds);
-	    
-	    // ⭐ 3. 각 메시지의 unreadCount를 -1 감소시키기 (DB 동기화용, 실제로는 실시간 계산값 사용)
-	    for (Integer chatId : readChatIds) {
-	        Optional<Chat> chatOpt = chatRepository.findById(chatId);
-	        if (chatOpt.isPresent()) {
-	            Chat chat = chatOpt.get();
-	            Integer currentUnreadCount = chat.getUnreadCount() != null ? chat.getUnreadCount() : 0;
-	            // unreadCount가 0보다 클 때만 -1 감소 - 도메인 메서드 사용
-	            if (currentUnreadCount > 0) {
-	                chat.updateUnreadCount(currentUnreadCount - 1);
-	                // ⭐ 배포 환경에서 즉시 DB 반영을 위해 saveAndFlush 사용
-	                chatRepository.saveAndFlush(chat);
-	            }
-	        }
-	    }
-	    
-	    // ⭐ 최종 flush로 모든 변경사항 확실히 반영
-	    chatMessageReadStatusRepository.flush();
-	    chatRepository.flush();
-	    
+
+	    // 2. 읽음 상태와 각 메시지의 unreadCount를 UPDATE 문 하나씩으로 수정
+	    chatMessageReadStatusRepository.markReadByChatIds(userId, readChatIds, LocalDateTime.now());
+	    chatRepository.decreaseUnreadCount(readChatIds);
+
 	    log.info("[markMessagesAsRead] 읽음 처리 완료 - roomId: {}, userId: {}, 처리된 메시지 수: {}", 
 	            roomId, userId, readChatIds.size());
 	    

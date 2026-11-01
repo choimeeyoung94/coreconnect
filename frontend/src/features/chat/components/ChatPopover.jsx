@@ -296,17 +296,8 @@ export default function ChatPopover({
                         {room.lastMessageTime ? formatTime(room.lastMessageTime) : ""}
                       </Typography>
                     </Box>
-                    {room.lastSenderName && (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", mb: 0.5 }}
-                      >
-                        {room.lastSenderName}
-                      </Typography>
-                    )}
                     <Typography variant="body2">
-                      {room.lastMessageFileYn ? "이미지 업로드" : (room.lastMessageContent || "메시지가 없습니다.")}
+                      새로운 메시지가 있습니다
                     </Typography>
                   </Box>
                 </ListItem>

@@ -93,20 +93,16 @@ const ToastList = ({ rooms, formatTime }) => {
                   }}
                 />
                 <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "primary.main" }}>
-                  {room.lastUnreadMessageContent}
+                  새로운 메시지가 있습니다
                 </Typography>
               </Box>
               <Box sx={{
                 fontSize: 13, display: "flex", gap: 1.3,
                 alignItems: "center", mb: 0.6
               }}>
-                <Typography variant="body2">{room.lastUnreadMessageSenderName}</Typography>
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
                   {formatTime ? formatTime(room.lastUnreadMessageTime) : ""}
                 </Typography>
-              </Box>
-              <Box sx={{ fontSize: 12, color: "#abd0ff", opacity: 0.83 }}>
-                [{room.roomName}]
               </Box>
             </Paper>
           </Box>

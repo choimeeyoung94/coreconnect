@@ -17,7 +17,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { formatTime } from "../../../../utils/TimeUtils";
 import { getNotificationTypeLabel } from "../../../../utils/labelUtils";
 import {
-  getAllUnreadNotifications,
+  getBellUnreadNotifications,
   getNotificationPage,
   markNotificationAsRead,
   markAllNotificationsAsRead,
@@ -234,7 +234,7 @@ export default function NotificationPopover({
       setLoadingNotifications(true);
       
       // 모든 안읽은 알림을 내림차순으로 한 번에 가져오기
-      const allNotifications = await getAllUnreadNotifications();
+      const allNotifications = await getBellUnreadNotifications();
       
       console.log("🔔 [NotificationPopover] API 응답:", allNotifications);
       console.log("🔔 [NotificationPopover] 응답 타입:", typeof allNotifications);

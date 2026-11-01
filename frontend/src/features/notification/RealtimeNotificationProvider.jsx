@@ -69,7 +69,8 @@ export function RealtimeNotificationProvider({ children }) {
       pushNotification(notif);
       
       // SnackbarContext를 사용하여 알림 표시
-      const message = notif.senderName 
+      // 채팅 알림은 보낸 사람 없이 문구만 보여준다
+      const message = notif.senderName && notif.type !== "CHAT"
         ? `${notif.senderName} — ${notif.message}`
         : notif.message;
       showSnack(message, typeToSeverity(notif.type));

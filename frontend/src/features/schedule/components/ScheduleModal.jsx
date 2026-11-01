@@ -989,10 +989,6 @@ export default function ScheduleModal({
                         component="img"
                         src="/coreconnect-logo.png"
                         alt="코어커넥트 로고"
-                        onError={(e) => {
-                          // 로고 로드 실패 시 vite.svg로 fallback
-                          e.target.src = "/vite.svg";
-                        }}
                         sx={{
                           height: 16,
                           width: "auto",

@@ -85,6 +85,19 @@ class NotificationListApiTest extends AbstractIntegrationTest {
   }
 
   @Test
+  @DisplayName("종 아이콘 목록에는 채팅 알림이 나오지 않는다")
+  void bell_excludesChatNotifications() throws Exception {
+    User b = newUser("b");
+    notif(b, "일정 알림", false);
+    notificationRepository.save(Notification.createNotification(b, NotificationType.CHAT, "채팅 알림", null, null, null, null,
+        false, true, false, LocalDateTime.now(), null, null));
+
+    JsonNode list = page(b, "all", 0, 20).path("content");
+    assertThat(list.size()).isEqualTo(1);
+    assertThat(list.get(0).path("message").asText()).isEqualTo("일정 알림");
+  }
+
+  @Test
   @DisplayName("종 아이콘 API는 알림 전체 이력을 읽지 않는다 (읽은 알림 2,000개 + 안 읽은 3개)")
   void bellApi_doesNotLoadWholeHistory() throws Exception {
     User b = newUser("b");
