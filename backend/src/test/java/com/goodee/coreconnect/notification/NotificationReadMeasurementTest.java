@@ -1,5 +1,6 @@
 package com.goodee.coreconnect.notification;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -10,10 +11,12 @@ import java.util.UUID;
 
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,9 +36,11 @@ import jakarta.servlet.http.Cookie;
  * 알림 읽음 요청 1번당 SQL 수와 시간 (MEASURE=true일 때만)
  * - 주소는 환경변수 READ_PATH (수정 전 /api/v1/chat/notifications/{id}/read, 수정 후 /api/v1/notification/{id}/read)
  * - 안 읽은 알림을 새로 만들어 읽음 처리 (매번 실제로 읽음으로 바뀌는 요청)
+ * - 검사: 520개가 모두 DB에서 읽음 + 읽은 시각 기록, 요청당 SQL 4개 이하
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {"security.mode=secure", "logging.level.org.hibernate.SQL=WARN", "logging.level.org.hibernate.stat=WARN"})
+@Tag("measure")
 @EnabledIfEnvironmentVariable(named = "MEASURE", matches = "true")
 class NotificationReadMeasurementTest extends AbstractIntegrationTest {
 
@@ -44,6 +49,7 @@ class NotificationReadMeasurementTest extends AbstractIntegrationTest {
   @Autowired private UserRepository userRepository;
   @Autowired private NotificationRepository notificationRepository;
   @Autowired private EntityManagerFactory entityManagerFactory;
+  @Autowired private JdbcTemplate jdbcTemplate;
 
   @Test
   void measure() throws Exception {
@@ -67,6 +73,10 @@ class NotificationReadMeasurementTest extends AbstractIntegrationTest {
       mockMvc.perform(put(path, ids.get(i)).cookie(cookie)).andExpect(status().isOk());
       nanos.add(System.nanoTime() - t0);
     }
+    Integer readCount = jdbcTemplate.queryForObject(
+        "SELECT COUNT(*) FROM notification WHERE user_id = ? AND notification_read_yn = true AND notification_read_at IS NOT NULL", Integer.class, b.getId());
+    assertThat(readCount).as("읽음 처리된 알림").isEqualTo(ids.size());
+    assertThat(sqlPerRequest).as("요청당 SQL").isLessThanOrEqualTo(4.0);
     nanos.sort(Long::compare);
     System.out.printf("[MEASURE] path=%s sqlPerRequest=%.2f n=%d p50=%.2fms p95=%.2fms%n", path, sqlPerRequest, nanos.size(),
         nanos.get(nanos.size() / 2) / 1e6, nanos.get((int) Math.ceil(nanos.size() * 0.95) - 1) / 1e6);

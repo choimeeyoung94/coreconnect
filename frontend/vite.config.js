@@ -21,6 +21,12 @@ export default defineConfig({
       },
     },
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.js',
+    testTimeout: 30000,
+    include: ['src/**/*.test.{js,jsx}'],
+  },
   server: {
     proxy: {
       '/api/v1': {

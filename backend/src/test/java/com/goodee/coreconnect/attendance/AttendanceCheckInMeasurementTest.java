@@ -1,5 +1,7 @@
 package com.goodee.coreconnect.attendance;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,12 +30,13 @@ import com.goodee.coreconnect.user.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 출근 동시성 결과 수치 측정용 (검증이 아니라 기록용이라 assert 없음)
+ * 출근 동시성 결과 수치 측정용. 동시 요청이 몇 개든 저장 1건·성공 1번·나머지는 "이미 출근"인지 함께 검사
  *
  * 평소 테스트 실행에서는 건너뛰고, 환경변수 MEASURE=true일 때만 실행
  * 동시 요청 10·50·100개를 각각 5번씩 반복해 저장 건수, 성공/실패 수, 평균 처리 시간을 로그로 남김
  */
 @Slf4j
+@Tag("measure")
 @EnabledIfEnvironmentVariable(named = "MEASURE", matches = "true")
 class AttendanceCheckInMeasurementTest extends AbstractIntegrationTest {
 
@@ -104,13 +108,21 @@ class AttendanceCheckInMeasurementTest extends AbstractIntegrationTest {
 
     ready.await();
     start.countDown();
-    done.await(120, TimeUnit.SECONDS);
+    boolean finished = done.await(120, TimeUnit.SECONDS);
     executor.shutdown();
 
     LocalDate today = LocalDate.now();
     var saved = attendanceRepository.findByUser_IdAndWorkDateBetween(user.getId(), today, today);
     attendanceRepository.deleteAll(saved);
     userRepository.deleteById(user.getId());
+
+    assertThat(finished).as("%d개 요청이 120초 안에 끝남", threadCount).isTrue();
+    // 오류 수를 먼저 봄: 뒤의 합계 판정이 먼저 실패하면 어떤 오류인지 메시지에 안 나옴
+    assertThat(incorrectResultSize.get()).as("결과 여러 건 오류").isZero();
+    assertThat(other.get()).as("기타 예외").isZero();
+    assertThat(saved).as("%d개 동시 요청에도 저장은 1건", threadCount).hasSize(1);
+    assertThat(success.get()).as("성공 1번").isEqualTo(1);
+    assertThat(alreadyCheckedIn.get()).as("나머지는 이미 출근").isEqualTo(threadCount - 1);
 
     double avgMs = totalNanos.get() / 1_000_000.0 / threadCount;
     double maxMs = maxNanos.get() / 1_000_000.0;

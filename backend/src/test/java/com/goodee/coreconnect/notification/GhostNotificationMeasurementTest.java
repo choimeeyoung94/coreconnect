@@ -1,5 +1,6 @@
 package com.goodee.coreconnect.notification;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mockingDetails;
 
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,13 +44,14 @@ import com.goodee.coreconnect.user.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 유령 알림 결과 수치 측정용 (검증이 아니라 기록용이라 assert 없음)
+ * 유령 알림 결과 수치 측정용. 시나리오마다 알림 저장·전송 수가 기대값과 같은지 끝에서 한 번에 검사
  *
  * 평소 테스트 실행에서는 건너뛰고, 환경변수 MEASURE=true일 때만 실행
  * - 롤백 시나리오(일정·채팅·결재)를 각각 100회 반복해 남은 유령 알림 행 수와 유령 화면 전송 수를 셈
  * - 정상 시나리오를 각각 100회 반복해 알림 저장·전송 수와 처리 시간(평균/p95)을 셈
  */
 @Slf4j
+@Tag("measure")
 @EnabledIfEnvironmentVariable(named = "MEASURE", matches = "true")
 class GhostNotificationMeasurementTest extends AbstractIntegrationTest {
 
@@ -67,6 +70,7 @@ class GhostNotificationMeasurementTest extends AbstractIntegrationTest {
   @Autowired private JdbcTemplate jdbcTemplate;
 
   private Integer templateId;
+  private final List<String> mismatches = new ArrayList<>();
 
   @Test
   @DisplayName("유령 알림 수치 측정")
@@ -82,6 +86,7 @@ class GhostNotificationMeasurementTest extends AbstractIntegrationTest {
 
     log.info("MEASURE_RESULT scenario,repeat,expectedNotifications,actualNotifications,expectedPushes,actualPushes,avgMs,p95Ms");
     rows.forEach(r -> log.info("MEASURE_RESULT {}", r));
+    assertThat(mismatches).as("기대값과 다른 시나리오").isEmpty();
   }
 
   // ───────────── 롤백 시나리오: 기대 알림 0, 전송 0 ─────────────
@@ -186,6 +191,9 @@ class GhostNotificationMeasurementTest extends AbstractIntegrationTest {
   // ───────────── 도우미 ─────────────
 
   private String row(String scenario, long expectedRows, long rows, long expectedPushes, long pushes, List<Long> nanos) {
+    if (expectedRows != rows || expectedPushes != pushes) {
+      mismatches.add(scenario + " 알림 " + expectedRows + "→" + rows + " 전송 " + expectedPushes + "→" + pushes);
+    }
     String timing = ",,";
     if (nanos != null) {
       List<Long> sorted = new ArrayList<>(nanos);

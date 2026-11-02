@@ -36,7 +36,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -60,12 +60,17 @@ jobs:
         working-directory: ./frontend
         run: npm ci
 
-      # 6. Frontend 빌드 검증
+      # 6. Frontend 단위·컴포넌트 테스트 (Vitest)
+      - name: Test Frontend
+        working-directory: ./frontend
+        run: npm test
+
+      # 7. Frontend 빌드 검증
       - name: Build Frontend
         working-directory: ./frontend
         run: npm run build
 
-      # 7. Frontend 린터 검사 (ESLint)
+      # 8. Frontend 린터 검사 (ESLint)
       - name: Run ESLint
         working-directory: ./frontend
         run: npm run lint || true

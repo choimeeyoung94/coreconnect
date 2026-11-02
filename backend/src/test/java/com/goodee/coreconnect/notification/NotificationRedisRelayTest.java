@@ -17,6 +17,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.mockito.ArgumentCaptor;
@@ -113,6 +114,7 @@ class NotificationRedisRelayTest extends AbstractIntegrationTest {
   }
 
   @Test
+  @Tag("measure")
   @EnabledIfEnvironmentVariable(named = "MEASURE", matches = "true")
   void measureCrossServerLatency() throws Exception {
     WebSocketDeliveryService server2 = newServer();
@@ -124,7 +126,9 @@ class NotificationRedisRelayTest extends AbstractIntegrationTest {
       server2.registerSession(4000 + i, s);
       long t0 = System.nanoTime();
       server1.sendToUser(4000 + i, Map.of("type", "CHAT", "message", "m" + i));
-      verify(s, timeout(3000).times(1)).sendMessage(any());
+      ArgumentCaptor<TextMessage> sent = ArgumentCaptor.forClass(TextMessage.class);
+      verify(s, timeout(3000).times(1)).sendMessage(sent.capture());
+      assertThat(sent.getValue().getPayload()).contains("\"message\":\"m" + i + "\"");
       if (i >= 20) nanos.add(got[0] - t0); // 처음 20번은 워밍업으로 버림
     }
     nanos.sort(Long::compare);
