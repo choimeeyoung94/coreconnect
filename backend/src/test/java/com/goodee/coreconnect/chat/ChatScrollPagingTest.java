@@ -1,5 +1,6 @@
 package com.goodee.coreconnect.chat;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +49,7 @@ import jakarta.servlet.http.Cookie;
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {"security.mode=secure", "logging.level.org.hibernate.SQL=WARN"})
+@Tag("measure")
 @EnabledIfEnvironmentVariable(named = "SCROLL", matches = "true")
 class ChatScrollPagingTest extends AbstractIntegrationTest {
 
@@ -109,6 +112,9 @@ class ChatScrollPagingTest extends AbstractIntegrationTest {
       System.out.printf("[SCROLL] %s pages=%d received=%d unique=%d duplicates=%d duplicatePages=%s missingFromNewest%d=%d samePage1Twice=%s avgMsPerPage=%d firstIdsPage0=%s firstIdsPage1=%s%n",
           e.getKey(), PAGES, all.size(), seen.size(), duplicates, dupPages, PAGES * 20, missing, page1a.equals(page1b),
           totalMs / PAGES, all.subList(0, 5), all.subList(20, 25));
+      assertThat(duplicates).as("%s 중복", e.getKey()).isZero();
+      assertThat(missing).as("%s 빠진 메시지", e.getKey()).isZero();
+      assertThat(page1a).as("%s 같은 페이지를 두 번 불러도 같은 결과", e.getKey()).isEqualTo(page1b);
     }
   }
 

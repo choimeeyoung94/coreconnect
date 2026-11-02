@@ -1,14 +1,19 @@
 package com.goodee.coreconnect.notification;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,10 +38,12 @@ import jakarta.servlet.http.Cookie;
  *   수정 전: api/v1/chat/notifications/unread/all, api/v1/chat/notifications
  *   수정 후: api/v1/chat/notifications/unread/all, api/v1/notification?status=unread&size=5
  * - 요청 1번당 읽은 엔티티 수·SQL 수(통계 켬, 1번), 시간(통계 끔, 워밍업 2번 버리고 CALLS번)
+ * - 검사: 응답에 안 읽은 알림 5개만, 읽은 알림이 늘어도 SQL 수가 같음, 읽은 엔티티가 쌓인 알림 수와 무관
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {"security.mode=secure", "logging.level.org.hibernate.SQL=WARN", "logging.level.org.hibernate.stat=WARN",
     "logging.level.com.goodee.coreconnect=WARN"})
+@Tag("measure")
 @EnabledIfEnvironmentVariable(named = "MEASURE", matches = "true")
 class NotificationListMeasurementTest extends AbstractIntegrationTest {
 
@@ -50,14 +57,16 @@ class NotificationListMeasurementTest extends AbstractIntegrationTest {
   void measure() throws Exception {
     String bell = "/" + System.getenv().getOrDefault("BELL_PATH", "api/v1/chat/notifications/unread/all");
     String card = "/" + System.getenv().getOrDefault("CARD_PATH", "api/v1/notification?status=unread&size=5");
+    Map<String, Long> sqlByPath = new HashMap<>();
     for (int n : new int[] {10_000, 100_000}) {
       User b = userRepository.save(User.createUser("pw", "b", Role.USER, "b-" + UUID.randomUUID() + "@test.com", null, null, null, null));
       for (int start = 0; start < n; start += 1000) {
         StringBuilder sql = new StringBuilder("INSERT INTO notification (user_id, notification_type, notification_message, notification_read_yn, notification_sent_yn, notification_deleted_yn, notification_sent_at, notification_read_at) VALUES ");
-        for (int i = 0; i < 1000; i++) sql.append(i == 0 ? "" : ",").append("(").append(b.getId()).append(", 'SCHEDULE', 'read', true, true, false, NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY)");
+        for (int i = 0; i < 1000; i++) sql.append(i == 0 ? "" : ",").append("(").append(b.getId()).append(", 'SCHEDULE', 'read', true, true, false, NOW() - INTERVAL 1 HOUR, NOW() - INTERVAL 1 HOUR)");
         jdbcTemplate.update(sql.toString());
       }
-      for (int i = 0; i < 5; i++) jdbcTemplate.update("INSERT INTO notification (user_id, notification_type, notification_message, notification_read_yn, notification_sent_yn, notification_deleted_yn, notification_sent_at) VALUES (?, 'SCHEDULE', 'unread', false, true, false, NOW())", b.getId());
+      // 안 읽은 알림을 읽은 알림보다 오래되게 넣음. 최신순 5개가 저절로 안 읽은 것이 되면 조건이 빠져도 판정이 통과함
+      for (int i = 0; i < 5; i++) jdbcTemplate.update("INSERT INTO notification (user_id, notification_type, notification_message, notification_read_yn, notification_sent_yn, notification_deleted_yn, notification_sent_at) VALUES (?, 'SCHEDULE', 'unread', false, true, false, NOW() - INTERVAL 1 DAY)", b.getId());
       Cookie cookie = new Cookie("access_token", jwtProvider.createAccess(b.getEmail(), b.getRole(), 60));
       int calls = n >= 100_000 ? 5 : 20;
       for (String path : new String[] {bell, card}) {
@@ -67,10 +76,17 @@ class NotificationListMeasurementTest extends AbstractIntegrationTest {
         Statistics stats = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         stats.setStatisticsEnabled(true);
         stats.clear();
-        mockMvc.perform(req).andExpect(status().isOk());
+        String body = mockMvc.perform(req).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         long entities = stats.getEntityLoadCount();
         long sqls = stats.getPrepareStatementCount();
         stats.setStatisticsEnabled(false);
+        assertThat(body.split("\"unread\"", -1).length - 1).as("%s 안 읽은 알림 5개", path).isEqualTo(5);
+        assertThat(body).as("%s 읽은 알림은 응답에 없음", path).doesNotContain("\"read\"");
+        assertThat(entities).as("%s 읽은 엔티티는 쌓인 알림 수와 무관", path).isLessThan(50);
+        Long previousSql = sqlByPath.putIfAbsent(path, sqls);
+        if (previousSql != null) {
+          assertThat(sqls).as("%s SQL 수는 알림 수와 무관", path).isEqualTo(previousSql);
+        }
         for (int i = 0; i < 2; i++) mockMvc.perform(req).andExpect(status().isOk());
         List<Long> nanos = new ArrayList<>();
         for (int i = 0; i < calls; i++) {

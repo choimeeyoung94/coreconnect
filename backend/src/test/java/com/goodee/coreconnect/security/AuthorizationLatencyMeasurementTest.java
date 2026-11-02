@@ -1,5 +1,6 @@
 package com.goodee.coreconnect.security;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,6 +13,7 @@ import java.util.UUID;
 
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,7 +49,9 @@ import jakarta.servlet.http.Cookie;
  * - sqlCountPerRequest: 요청 1번당 SQL 실행 수(Hibernate Statistics prepareStatementCount). 통계는 이 메서드 안에서만 켬
  * - timing: 통계·SQL 로그를 끈 상태에서 시간만 잼 (통계를 켜면 쿼리마다 비용이 붙어 쿼리가 많은 쪽이 더 느려 보임)
  *   워밍업 1회(버림) 뒤 ROUNDS회, 회차마다 API별로 CALLS번 호출. 모든 호출 시간으로 p50·p95, 회차 평균들로 평균·표준편차
- * - 두 메서드는 --tests로 따로 실행. 결과는 [MEASURE] 줄로 출력
+ * - 결과는 [MEASURE] 줄로 출력
+ * - 검사: 잰 요청이 모두 200이고 횟수가 맞음, 요청당 SQL이 기준 이하(늘어나면 실패), 남의 데이터 요청은 거부됨(인가가 켜진 채 잰 것임을 확인)
+ * - 시간은 PC 상태에 따라 흔들려 기준값을 두지 않음
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
@@ -56,11 +60,13 @@ import jakarta.servlet.http.Cookie;
     "logging.level.org.hibernate.stat=WARN",
     "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=WARN"
 })
+@Tag("measure")
 @EnabledIfEnvironmentVariable(named = "MEASURE", matches = "true")
 class AuthorizationLatencyMeasurementTest extends AbstractIntegrationTest {
 
   private static final int ROUNDS = 10;
   private static final int CALLS = 100;
+  private static final Map<String, Double> MAX_SQL = Map.of("메일 상세", 6.0, "받은메일함", 4.0, "채팅 메시지 목록", 8.0, "일정 단건", 5.0);
 
   @Autowired private MockMvc mockMvc;
   @Autowired private JwtProvider jwtProvider;
@@ -70,6 +76,15 @@ class AuthorizationLatencyMeasurementTest extends AbstractIntegrationTest {
   @Autowired private ChatRoomService chatRoomService;
   @Autowired private ScheduleService scheduleService;
   @Autowired private EntityManagerFactory entityManagerFactory;
+
+  @Test
+  void strangerIsRejected() throws Exception {
+    ownerRequests();
+    User stranger = newUser("stranger");
+    mockMvc.perform(as(stranger, get("/api/v1/email/{id}", mailId).param("userEmail", stranger.getEmail()))).andExpect(status().isForbidden());
+    mockMvc.perform(as(stranger, get("/api/v1/chat/{roomId}/messages", roomId))).andExpect(status().isForbidden());
+    mockMvc.perform(as(stranger, get("/api/v1/schedules").param("id", String.valueOf(scheduleId)))).andExpect(status().isForbidden());
+  }
 
   @Test
   void sqlCountPerRequest() throws Exception {
@@ -84,7 +99,9 @@ class AuthorizationLatencyMeasurementTest extends AbstractIntegrationTest {
         for (int i = 0; i < n; i++) {
           mockMvc.perform(api.getValue()).andExpect(status().isOk());
         }
-        System.out.printf("[MEASURE] SQL %s queriesPerRequest=%.2f%n", api.getKey(), (double) stats.getPrepareStatementCount() / n);
+        double queries = (double) stats.getPrepareStatementCount() / n;
+        System.out.printf("[MEASURE] SQL %s queriesPerRequest=%.2f%n", api.getKey(), queries);
+        assertThat(queries).as("%s 요청당 SQL", api.getKey()).isLessThanOrEqualTo(MAX_SQL.get(api.getKey()));
         for (String q : stats.getQueries()) {
           System.out.printf("[MEASURE] SQLQ %s x%d %s%n", api.getKey(), stats.getQueryStatistics(q).getExecutionCount(), q);
         }
@@ -122,6 +139,7 @@ class AuthorizationLatencyMeasurementTest extends AbstractIntegrationTest {
     }
     for (String name : apis.keySet()) {
       List<Long> nanos = allNanos.get(name);
+      assertThat(nanos).as("%s 잰 횟수", name).hasSize(ROUNDS * CALLS);
       nanos.sort(Long::compare);
       double p50 = nanos.get(nanos.size() / 2) / 1_000_000.0;
       double p95 = nanos.get((int) Math.ceil(nanos.size() * 0.95) - 1) / 1_000_000.0;
@@ -134,15 +152,22 @@ class AuthorizationLatencyMeasurementTest extends AbstractIntegrationTest {
   }
 
   /** 본인 데이터를 보는 정상 요청 4개 (B가 받은 메일, B가 참여한 방, B의 일정) */
+  private Integer mailId;
+  private Integer roomId;
+  private Integer scheduleId;
+
   private Map<String, MockHttpServletRequestBuilder> ownerRequests() {
     User b = newUser("b");
     User c = newUser("c");
     Email mail = mailTo(b, c);
     ChatRoom room = chatRoomService.createChatRoom("방", List.of(b.getId(), c.getId()), b.getEmail());
     LocalDateTime start = LocalDateTime.of(2099, 6, 1, 10, 0);
-    Integer scheduleId = scheduleService.createSchedule(RequestScheduleDTO.builder()
+    scheduleId = scheduleService.createSchedule(RequestScheduleDTO.builder()
         .title("B 일정").startDateTime(start).endDateTime(start.plusHours(1)).participantIds(List.of()).build(),
         b.getEmail()).getId();
+
+    mailId = mail.getEmailId();
+    roomId = room.getId();
 
     Map<String, MockHttpServletRequestBuilder> apis = new LinkedHashMap<>();
     apis.put("메일 상세", as(b, get("/api/v1/email/{id}", mail.getEmailId()).param("userEmail", b.getEmail())));

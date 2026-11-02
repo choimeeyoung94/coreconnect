@@ -83,6 +83,21 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
+// 측정·대용량 테스트 한 번에 실행: gradlew measure (평소 test에서는 환경 변수가 없어 건너뜀)
+tasks.register('measure', Test) {
+	group = 'verification'
+	description = '@Tag("measure") 측정 테스트만 실행'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	systemProperty 'user.timezone', 'Asia/Seoul'
+	environment 'MEASURE', 'true'
+	environment 'SCROLL', 'true'
+	useJUnitPlatform {
+		includeTags 'measure'
+	}
+	outputs.upToDateWhen { false } // 측정은 코드가 그대로여도 매번 다시 실행
+}
+
 tasks.withType(JavaCompile) {
     options.compilerArgs.add("-parameters")
 }

@@ -1,16 +1,20 @@
 package com.goodee.coreconnect.security;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +53,7 @@ import jakarta.persistence.EntityManagerFactory;
  * - 참여자 N명(10, 50)이 모두 실제 STOMP로 방을 구독한 상태에서, 서버가 그 방에 메시지 M건을 보냄
  * - 같은 JVM에서 검사기를 빼고(OFF) / 넣고(ON) 번갈아 3회씩 잼. 처음 1회는 워밍업으로 버림
  * - 메시지 1건당: 모든 참여자가 받을 때까지 걸린 시간(ms), 실행된 DB 조회 수(Hibernate Statistics)
+ * - 검사: 검사기가 켜고 끈 대로 붙어 있음, 참여자 × 메시지 수만큼 정확히 전달, OFF는 조회 0, ON은 캐시로 메시지당 조회 1번 미만
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
     "jwt.secret=integration-test-jwt-secret-key-must-be-at-least-256-bits-long",
@@ -67,6 +72,7 @@ import jakarta.persistence.EntityManagerFactory;
     "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=WARN"
 })
 @TestPropertySource(properties = "security.mode=secure")
+@Tag("measure")
 @EnabledIfEnvironmentVariable(named = "MEASURE", matches = "true")
 class ChatOutboundCheckMeasurementTest extends AbstractIntegrationTest {
 
@@ -118,6 +124,8 @@ class ChatOutboundCheckMeasurementTest extends AbstractIntegrationTest {
     }
     CountDownLatch received = new CountDownLatch(room.members * MESSAGES);
     room.latch.set(received);
+    room.delivered.set(0);
+    assertThat(clientOutboundChannel.getInterceptors().contains(outboundInterceptor)).as("검사기 상태").isEqualTo(checkOn);
 
     Statistics stats = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
     stats.clear();
@@ -130,6 +138,13 @@ class ChatOutboundCheckMeasurementTest extends AbstractIntegrationTest {
     }
     long elapsed = System.nanoTime() - t0;
     long queries = stats.getPrepareStatementCount();
+    Thread.sleep(300); // 더 오는 메시지가 없는지 확인
+    assertThat(room.delivered.get()).as("%s 전달 수", label).isEqualTo(room.members * MESSAGES);
+    if (!checkOn) {
+      assertThat(queries).as("%s 검사기 없으면 DB 조회 없음", label).isZero();
+    } else if (!label.equals("warmup")) {
+      assertThat((double) queries / MESSAGES).as("%s 메시지당 조회", label).isLessThan(1.0);
+    }
     if (!label.equals("warmup")) {
       System.out.printf("[MEASURE] %s msPerMessage=%.3f queriesPerMessage=%.2f deliveries=%d%n",
           label, elapsed / 1_000_000.0 / MESSAGES, (double) queries / MESSAGES, room.members * MESSAGES);
@@ -138,7 +153,7 @@ class ChatOutboundCheckMeasurementTest extends AbstractIntegrationTest {
 
   // ───────────── 준비 ─────────────
 
-  private record Room(String topic, int members, AtomicReference<CountDownLatch> latch) {}
+  private record Room(String topic, int members, AtomicReference<CountDownLatch> latch, AtomicInteger delivered) {}
 
   private Room roomWith(int members) throws Exception {
     List<User> users = new ArrayList<>();
@@ -149,6 +164,7 @@ class ChatOutboundCheckMeasurementTest extends AbstractIntegrationTest {
     ChatRoom room = chatRoomService.createChatRoom("측정방", users.stream().map(User::getId).toList(), users.get(0).getEmail());
     String topic = "/topic/chat.room." + room.getId();
     AtomicReference<CountDownLatch> latch = new AtomicReference<>(new CountDownLatch(0));
+    AtomicInteger delivered = new AtomicInteger();
     for (User u : users) {
       WebSocketHttpHeaders handshake = new WebSocketHttpHeaders();
       handshake.add("Cookie", "access_token=" + jwtProvider.createAccess(u.getEmail(), u.getRole(), 60));
@@ -163,13 +179,14 @@ class ChatOutboundCheckMeasurementTest extends AbstractIntegrationTest {
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
+          delivered.incrementAndGet();
           latch.get().countDown();
         }
       });
       sessions.add(session);
     }
     Thread.sleep(1000); // 구독 등록 대기
-    return new Room(topic, members, latch);
+    return new Room(topic, members, latch, delivered);
   }
 
   private static WebSocketStompClient newClient() {
