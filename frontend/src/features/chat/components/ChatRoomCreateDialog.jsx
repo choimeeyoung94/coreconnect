@@ -409,7 +409,8 @@ function ChatRoomCreateDialog({ open, onClose, onCreate, presetUsers }) {
       showSnack("세 명 이상 선택할 수 없습니다 (본인 포함 2명만 선택하세요)", "warning");
       return;
     }
-    if (roomType === "alone" && selectedUsers.length === 0) {
+    // 나는 항상 자동으로 들어가 있으므로, 상대를 한 명도 고르지 않으면 1명뿐이다
+    if (roomType === "alone" && selectedUsers.length < 2) {
       showSnack("1:1 채팅은 본인 포함 2명을 선택해야 합니다.", "warning");
       return;
     }
