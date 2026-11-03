@@ -2,12 +2,19 @@ import React, { useRef, useContext, useEffect, useLayoutEffect, useState } from 
 import { Box, Typography, Avatar, IconButton } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import { UserProfileContext } from "../../../App";
+import { getJobGradeLabel } from "../../../utils/labelUtils";
 
 // ChatMessageList: 과거 메시지 로딩 시 스크롤 튕김 방지를 위한 최적화 버전
 // useLayoutEffect를 사용하여 브라우저 페인트 전에 스크롤 위치를 보정합니다.
 
 // 방을 보는 상대의 읽음 확인이 도착하기 전에 숫자가 깜빡이지 않도록, 방금 보낸 메시지의 숫자는 잠시 뒤에 보여준다
 const UNREAD_DISPLAY_DELAY_MS = 2000;
+
+// 보낸 사람 표시: 이름/소속팀/직급 (없는 값은 건너뜀, 나간 사람은 부서·직급이 비어 이름만 보임)
+function senderLabel(msg) {
+  const jobGrade = msg.senderJobGrade ? getJobGradeLabel(msg.senderJobGrade) : "";
+  return [msg.senderName || "알 수 없음", msg.senderDeptName, jobGrade].filter(Boolean).join("/");
+}
 
 function UnreadCount({ count, sendAt }) {
   // 보낸 시각은 초 단위로 내려오므로 최대 1초 오래되어 보인다. 그만큼 더해서 방금 보낸 메시지인지 판단한다
@@ -30,6 +37,7 @@ function UnreadCount({ count, sendAt }) {
 
 function ChatMessageList({
   messages,
+  contentOpacity = 1,
   roomType = "group",
   onLoadMore,
   hasMoreAbove,
@@ -90,8 +98,8 @@ function ChatMessageList({
       onScroll={handleScroll}
       className="chat-message-list-container"
       sx={{
-        height: "55vh",
-        maxHeight: 600,
+        flex: 1,
+        minHeight: 0,
         overflowY: "auto",
         overflowAnchor: "none",
         background: "#fafbff",
@@ -128,7 +136,8 @@ function ChatMessageList({
           </Typography>
         </Box>
       ) : (
-        messages.map((msg) => {
+        <Box data-testid="chat-message-content" sx={{ opacity: contentOpacity }}>
+        {messages.map((msg) => {
           const isMyMessage =
             msg.senderEmail === userProfile?.email ||
             msg.senderId === userProfile?.id;
@@ -189,8 +198,8 @@ function ChatMessageList({
                   alignItems: isMyMessage ? "flex-end" : "flex-start",
                 }}
               >
-                {/* 발신자 이름 (내 메시지는 제외) */}
-                {!isMyMessage && roomType === "group" && (
+                {/* 발신자 이름/소속팀/직급 (내 메시지는 제외) */}
+                {!isMyMessage && (
                   <Typography
                     sx={{
                       fontSize: 12,
@@ -199,7 +208,7 @@ function ChatMessageList({
                       ml: 0.5,
                     }}
                   >
-                    {msg.senderName || "알 수 없음"}
+                    {senderLabel(msg)}
                   </Typography>
                 )}
 
@@ -215,7 +224,7 @@ function ChatMessageList({
                     wordBreak: "break-word",
                   }}
                 >
-                  <Typography sx={{ fontSize: 14, lineHeight: 1.5 }}>
+                  <Typography sx={{ fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
                     {msg.messageContent}
                   </Typography>
 
@@ -282,7 +291,8 @@ function ChatMessageList({
               </Box>
             </Box>
           );
-        })
+        })}
+        </Box>
       )}
     </Box>
   );

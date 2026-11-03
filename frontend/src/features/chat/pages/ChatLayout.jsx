@@ -107,7 +107,6 @@ export default function ChatLayout() {
   const [createOpen, setCreateOpen] = useState(false); // 방 생성 다이얼로그 열림 여부
   const [highlightedRoomId, setHighlightedRoomId] = useState(null); // 하이라이팅된 채팅방 ID
 
-  const userName = userProfile?.name || ""; // 유저명
   const inputRef = useRef(); // 입력창 관리 ref
   const isInitialLoadRef = useRef(true); // ✅ 초기 로드 여부 추적 (무한 스크롤과 구분)
 
@@ -117,7 +116,7 @@ export default function ChatLayout() {
   const [currentPage, setCurrentPage] = useState(0); // 현재 페이지 (0부터 시작)
   const [hasMore, setHasMore] = useState(true); // 더 불러올 메시지가 있는지
   const [isLoadingMore, setIsLoadingMore] = useState(false); // 이전 메시지 로딩 중인지
-  const [totalPages, setTotalPages] = useState(0); // 전체 페이지 수
+  const [, setTotalPages] = useState(0); // 전체 페이지 수 (값은 아직 화면에서 쓰지 않음)
   
   // 안읽은 메시지 위치로 스크롤할지 여부
   const [scrollToUnread, setScrollToUnread] = useState(false);
@@ -1208,14 +1207,6 @@ export default function ChatLayout() {
     return () => document.removeEventListener("visibilitychange", handleVisible);
   }, [selectedRoomId]);
 
-  // ---------- 스크롤로 읽음 처리 ----------
-  const handleScrollRead = async () => {
-    if (selectedRoomId && messages.length > 0) {
-      await markRoomMessagesAsRead(selectedRoomId, lastMessageIdOf(messagesRef.current));
-      loadRooms();
-    }
-  };
-
   // ---------- 채팅방 목록 새로고침 (최신화) ----------
   // 이 함수에서 방 목록을 받아와도 setSelectedRoomId(null)로 설정하여
   // 첫 진입시 아무 방도 선택하지 않게 한다
@@ -1897,27 +1888,6 @@ export default function ChatLayout() {
                 }
               }
               setScrollToUnread(false);
-            }}
-            onMarkAllAsRead={async () => {
-              if (selectedRoomId) {
-                try {
-                  await markRoomMessagesAsRead(selectedRoomId, lastMessageIdOf(messagesRef.current));
-                  loadRooms();
-                  // 메시지 목록도 새로고침하여 읽음 상태 업데이트
-                  if (selectedRoomId) {
-                    const res = await fetchLatestChatRoomMessages(selectedRoomId, 20);
-                    if (res && res.data) {
-                      const messageList = Array.isArray(res.data.content) ? res.data.content : [];
-                      setMessages(messageList);
-                      setCurrentPage(0);
-                      setTotalPages(res.data.totalPages || 0);
-                      setHasMore(!res.data.last);
-                    }
-                  }
-                } catch (error) {
-                  console.error("모두 읽음 처리 실패:", error);
-                }
-              }
             }}
             onLeaveRoom={handleLeaveRoom}
           />
