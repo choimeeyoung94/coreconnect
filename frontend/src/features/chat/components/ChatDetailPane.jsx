@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Avatar, Typography, IconButton, AvatarGroup, Menu, MenuItem } from "@mui/material";
 import GroupIcon from "@mui/icons-material/Group";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -10,6 +10,17 @@ import ChatRoomParticipantsDialog from "./ChatRoomParticipantsDialog";
 import ChatRoomInviteDialog from "./ChatRoomInviteDialog";
 import { fetchChatRoomUsers, leaveChatRoom } from "../api/ChatRoomApi";
 
+const MESSAGE_OPACITY_KEY = "chat.messageOpacity";
+
+function loadMessageOpacity() {
+  try {
+    const saved = Number(localStorage.getItem(MESSAGE_OPACITY_KEY));
+    return saved >= 0.2 && saved <= 1 ? saved : 1;
+  } catch {
+    return 1;
+  }
+}
+
 // 오른쪽 채팅방 상세패널(상단 Room, 메시지, 입력창)
 function ChatDetailPane({
   selectedRoom, messages,
@@ -17,7 +28,6 @@ function ChatDetailPane({
   inputRef, onSend, onFileUpload, socketConnected,
   onScrollTop, isLoadingMore, hasMoreAbove,
   scrollToUnread = false, onScrollToUnreadComplete,
-  onMarkAllAsRead, // 모두 읽음 처리 함수
   onLeaveRoom // 채팅방 나가기 콜백
 }) {
   const [participantsDialogOpen, setParticipantsDialogOpen] = useState(false);
@@ -25,6 +35,16 @@ function ChatDetailPane({
   const [participants, setParticipants] = useState([]);
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const menuOpen = Boolean(menuAnchorEl);
+  const [messageOpacity, setMessageOpacity] = useState(loadMessageOpacity);
+
+  const handleMessageOpacityChange = (value) => {
+    setMessageOpacity(value);
+    try {
+      localStorage.setItem(MESSAGE_OPACITY_KEY, String(value));
+    } catch {
+      // 저장이 막힌 브라우저에서는 이번 화면에서만 적용
+    }
+  };
 
   // ❌ 제거: ChatLayout에서 스크롤을 관리하므로 여기서는 스크롤하지 않음
   // ChatDetailPane은 단순히 메시지를 표시만 하고, 스크롤 제어는 ChatLayout의 isInitialLoadRef로 처리
@@ -48,7 +68,8 @@ function ChatDetailPane({
   return (
     <Box sx={{
       flex: 1, minWidth: "380px",
-      height: "calc(100vh - 56px - 32px)", background: "#f8fbfd",
+      // 화면 높이에서 상단바·채팅 제목줄·여백(합 153px)을 빼야 입력창과 전송 버튼이 스크롤 없이 보인다
+      height: "calc(100vh - 153px)", background: "#f8fbfd",
       display: "flex", flexDirection: "column", borderRadius: 0, boxShadow: "none",
     }}>
       <Box sx={{
@@ -153,6 +174,7 @@ function ChatDetailPane({
       </Box>
       <ChatMessageList
         messages={messages}
+        contentOpacity={messageOpacity}
         roomType={selectedRoom.roomType || "group"}
         onLoadMore={onScrollTop}
         hasMoreAbove={hasMoreAbove}
@@ -165,6 +187,8 @@ function ChatDetailPane({
         onSend={onSend}
         onFileUpload={onFileUpload}
         socketConnected={socketConnected}
+        messageOpacity={messageOpacity}
+        onMessageOpacityChange={handleMessageOpacityChange}
       />
       
       {/* 채팅방 참여자 목록 다이얼로그 */}
