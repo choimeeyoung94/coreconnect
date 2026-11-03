@@ -1,6 +1,37 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Tabs, Tab, List, ListItem, ListItemButton, ListItemText, Badge, Typography, Chip } from "@mui/material";
-import http from "../../../api/http"; // axios 인스턴스 불러오기
+import React from 'react';
+import { Avatar, Box, Tabs, Tab, List, ListItem, ListItemButton, ListItemText, Badge, Typography } from "@mui/material";
+
+// 방 프로필: 1:1(참여자 2명 이하)은 상대 사진 1개, 단체방은 나를 뺀 참여자 사진을 최대 4개까지 칸으로 나눠 보여준다
+function RoomAvatar({ room }) {
+  const members = Array.isArray(room.members) ? room.members : [];
+  const avatarOf = (member, size, fontSize) => (
+    <Avatar
+      key={member.userId}
+      src={member.profileImageUrl || undefined}
+      alt={member.name}
+      sx={{ width: size, height: size, fontSize, bgcolor: "#4a90e2" }}
+    >
+      {member.name?.charAt(0) || "?"}
+    </Avatar>
+  );
+
+  if ((room.memberCount ?? 0) <= 2 || members.length <= 1) {
+    return (
+      <Box data-testid="room-avatar" data-kind="direct" sx={{ width: 48, height: 48, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {members[0] ? avatarOf(members[0], 48, 18) : <Avatar sx={{ width: 48, height: 48 }} />}
+      </Box>
+    );
+  }
+  return (
+    <Box data-testid="room-avatar" data-kind="group" sx={{
+      width: 48, height: 48, flexShrink: 0, display: "grid", gap: "2px",
+      gridTemplateColumns: "1fr 1fr", gridTemplateRows: members.length > 2 ? "1fr 1fr" : "1fr",
+      alignContent: "center", justifyItems: "center", alignItems: "center",
+    }}>
+      {members.slice(0, 4).map(m => avatarOf(m, 23, 11))}
+    </Box>
+  );
+}
 
 // 채팅방 목록(좌측) & 탭
 function ChatRoomListPane({
@@ -21,32 +52,6 @@ function ChatRoomListPane({
     const hour12 = String(hour % 12 || 12).padStart(2, "0");
     return `${past[1]} ${hour < 12 ? "오전" : "오후"} ${hour12}시 ${past[3]}분`;
   };
-  // 참여자 수 정보를 저장할 state: { [roomId]: 참여자수 }
-  const [roomMemberCounts, setRoomMemberCounts] = useState({});
-
-  // roomList가 바뀔 때마다 각 방의 참여자 수 API 호출
-  useEffect(() => {
-    async function fetchAllMemberCounts() {
-      const countObj = {};
-      await Promise.all(
-        roomList.map(async (room) => {
-          try {
-            // GET /chat/{roomId}/users → 응답 data.data에 사용자 배열
-            const res = await http.get(`/chat/${room.roomId}/users`);
-            const users = Array.isArray(res.data.data) ? res.data.data : [];
-            countObj[room.roomId] = users.length;
-          } catch {
-            countObj[room.roomId] = 0;
-          }
-        })
-      );
-      setRoomMemberCounts(countObj);
-    }
-    if (Array.isArray(roomList) && roomList.length > 0) {
-      fetchAllMemberCounts();
-    }
-  }, [roomList]);
-
   // "전체"(0) 또는 "안읽음"(1) 탭 필터링
   const filteredRooms = tabIdx === 0 ? roomList : roomList.filter(r => r.unreadCount > 0);
 
@@ -68,16 +73,6 @@ function ChatRoomListPane({
 
   // 정렬된 채팅방 목록
   const sortedRooms = sortRoomsByLastMessage(filteredRooms);
-
-  // 참여자 수 기준 채팅방 유형 뱃지(1:1, 단체 채팅) 반환용
-  function TypeBadge({ count }) {
-    if (!count) return null; // 참여자 데이터 없음
-    if (count === 2)
-      return <Chip label="1:1" size="small" color="primary" sx={{ fontWeight: 700, ml: 0.5, flexShrink: 0 }} />;
-    if (count > 2)
-      return <Chip label="단체 채팅" size="small" color="primary" sx={{ fontWeight: 700, ml: 0.5, flexShrink: 0 }} />;
-    return null;
-  }
 
   return (
     <Box sx={{
@@ -142,7 +137,7 @@ function ChatRoomListPane({
               <ListItemButton
                 selected={selectedRoomId === room.roomId}
                 onClick={() => setSelectedRoomId(room.roomId)}
-                alignItems="flex-start"
+                alignItems="center"
                 sx={{
                   borderRadius: 0,
                   background: selectedRoomId === room.roomId ? "#f3f6fa" : "#fff",
@@ -163,86 +158,71 @@ function ChatRoomListPane({
                   })
                 }}
               >
+                <RoomAvatar room={room} />
                 <ListItemText
-                primary={
-                  <Box sx={{ display: "flex", alignItems: "center", flexWrap: "nowrap", width: "100%" }}>
-                    <Box sx={{ display: "flex", alignItems: "center", flexGrow: 1, minWidth: 0, gap: 0 }}>
-                      <Typography sx={{ fontWeight: 700, fontSize: 18, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {room.roomName}
-                      </Typography>
-                      {/* 참여자수에 따라 1:1 또는 단체 채팅 뱃지 표시 - 채팅방 이름 바로 옆에 붙임 */}
-                      {roomMemberCounts[room.roomId] && (
-                        <TypeBadge count={roomMemberCounts[room.roomId]} />
-                      )}
-                    </Box>
-                    {/* 안읽은 메시지 숫자 - 오른쪽으로 더 이동 */}
-                    {room.unreadCount > 0 && (
-                      <Box sx={{ flexShrink: 0, ml: 2 }}>
-                        <Badge
-                          badgeContent={room.unreadCount}
+                  sx={{ ml: 1.5, my: 0, minWidth: 0 }}
+                  primary={
+                    <Typography sx={{ fontWeight: 700, fontSize: 18, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {room.roomName}
+                    </Typography>
+                  }
+                  secondary={
+                    <Box component="span" sx={{ display: "block" }}>
+                      {/* 초대된 채팅방 표시 */}
+                      {room.invited && (
+                        <Typography
+                          component="span"
                           sx={{
-                            "& .MuiBadge-badge": {
-                              background: "#f44336",
-                              color: "#fff",
-                              fontWeight: 700,
-                              fontSize: "13px",
-                              borderRadius: "10px",
-                              py: 1, 
-                              px: 1.2,
-                              minWidth: "20px",
-                            }
+                            fontSize: 12,
+                            color: "#1976d2",
+                            fontWeight: 600,
+                            display: "block",
+                            mb: 0.5
                           }}
                         >
-                          <Box sx={{ width: 0, height: 0 }} />
-                        </Badge>
-                      </Box>
-                    )}
-                  </Box>
-                }
-                secondary={
-                  <Box component="span" sx={{ display: "block" }}>
-                    {/* 초대된 채팅방 표시 */}
-                    {room.invited && (
+                          내가 초대된 채팅방입니다
+                        </Typography>
+                      )}
                       <Typography
                         component="span"
                         sx={{
-                          fontSize: 12,
-                          color: "#1976d2",
-                          fontWeight: 600,
-                          display: "block",
-                          mb: 0.5
+                          fontSize: 14,
+                          color: "#555",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          display: "block"
                         }}
                       >
-                        내가 초대된 채팅방입니다
+                        {room.lastMessageFileYn ? "이미지 업로드" : (room.lastMessageContent ? room.lastMessageContent : "")}
                       </Typography>
-                    )}
-                    <Typography
-                      component="span"
+                    </Box>
+                  }
+                />
+                {/* 오른쪽: 마지막 메시지 날짜·시간, 그 아래 안 읽은 수 */}
+                <Box sx={{ flexShrink: 0, ml: 1, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+                  <Typography data-testid="room-last-time" sx={{ fontSize: 12, color: "#9495a0", whiteSpace: "nowrap" }}>
+                    {room.lasMessageTime ? formatLastMessageTime(room.lasMessageTime) : ""}
+                  </Typography>
+                  {room.unreadCount > 0 && (
+                    <Badge
+                      badgeContent={room.unreadCount}
                       sx={{
-                        fontSize: 14,
-                        color: "#555",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        display: "block"
+                        mr: 1.5,
+                        "& .MuiBadge-badge": {
+                          position: "static",
+                          transform: "none",
+                          background: "#f44336",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: "13px",
+                          borderRadius: "10px",
+                          minWidth: "20px",
+                        }
                       }}
-                    >
-                      {room.lastMessageFileYn ? "이미지 업로드" : (room.lastMessageContent ? room.lastMessageContent : "")}
-                    </Typography>
-                    <Typography
-                      component="span"
-                      sx={{
-                        fontSize: 13,
-                        color: "#9495a0",
-                        display: "block",
-                        mt: 0.5
-                      }}
-                    >
-                      {room.lasMessageTime ? formatLastMessageTime(room.lasMessageTime) : ""}
-                    </Typography>
-                  </Box>
-                }
-              />
+                    />
+                  )}
+                </Box>
               </ListItemButton>
             </ListItem>
           ))

@@ -28,6 +28,8 @@ import com.goodee.coreconnect.chat.dto.response.ChatResponseDTO;
 import com.goodee.coreconnect.chat.dto.response.ChatRoomLatestMessageDTO;
 import com.goodee.coreconnect.chat.dto.response.ChatRoomLatestMessageResponseDTO;
 import com.goodee.coreconnect.chat.dto.response.ChatRoomListDTO;
+import com.goodee.coreconnect.chat.dto.response.ChatRoomMemberPreviewDTO;
+import com.goodee.coreconnect.common.service.S3Service;
 import com.goodee.coreconnect.chat.dto.response.ChatRoomSummaryResponseDTO;
 import com.goodee.coreconnect.chat.dto.response.UnreadNotificationListDTO;
 import com.goodee.coreconnect.chat.entity.Chat;
@@ -71,6 +73,7 @@ private final UserRepository userRepository;
 	private final MessageFileRepository messageFileRepository;
     private final ChatMessageReadStatusRepository chatMessageReadStatusRepository;
     private final ChatPubSubService chatPubSubService;
+    private final S3Service s3Service;
     
 	@Transactional(readOnly = true)
 	@Override
@@ -838,8 +841,21 @@ private final UserRepository userRepository;
 	    Map<Integer, Chat> roomIdToLastMessage = lastMessages.stream()
 	    		.collect(Collectors.toMap(chat -> chat.getChatRoom().getId(), chat -> chat));
 
-	    // 3-1. 방별 지금 참여자 (마지막 메시지 보낸 사람이 나갔으면 "알 수 없음"), 방별 내가 들어온 시각
-	    Map<Integer, Set<Integer>> roomIdToMemberIds = memberIdsByRoom(roomIds);
+	    // 3-1. 방별 지금 참여자 (마지막 메시지 보낸 사람이 나갔으면 "알 수 없음", 프로필 사진은 나를 뺀 최대 4명), 방별 내가 들어온 시각
+	    //      참여자는 방 수와 상관없이 쿼리 1번 (예전 화면은 방마다 참여자 API를 따로 불렀음)
+	    Map<Integer, Set<Integer>> roomIdToMemberIds = new HashMap<>();
+	    Map<Integer, List<ChatRoomMemberPreviewDTO>> roomIdToOthers = new HashMap<>();
+	    if (!roomIds.isEmpty()) {
+	        for (Object[] row : chatRoomUserRepository.findMemberPreviewsByChatRoomIds(roomIds)) {
+	            Integer roomId = (Integer) row[0];
+	            Integer memberId = (Integer) row[1];
+	            roomIdToMemberIds.computeIfAbsent(roomId, k -> new HashSet<>()).add(memberId);
+	            List<ChatRoomMemberPreviewDTO> others = roomIdToOthers.computeIfAbsent(roomId, k -> new ArrayList<>());
+	            if (!memberId.equals(userId) && others.size() < 4) {
+	                others.add(new ChatRoomMemberPreviewDTO(memberId, (String) row[2], profileImageUrlOf((String) row[3])));
+	            }
+	        }
+	    }
 	    Map<Integer, LocalDateTime> roomIdToJoinedAt = new HashMap<>();
 	    chatRoomUsers.forEach(cru -> roomIdToJoinedAt.put(cru.getChatRoom().getId(), cru.getJoinedAt()));
 	    
@@ -862,6 +878,8 @@ private final UserRepository userRepository;
 	                ? senderNameFor(lastMessage.getSender(), roomIdToMemberIds.get(room.getId())) : null);
 	        dto.setUnreadCount(unreadCount);
 	        dto.setLastMessageFileYn(lastMessage != null ? lastMessage.getFileYn() : null);
+	        dto.setMemberCount(roomIdToMemberIds.getOrDefault(room.getId(), Set.of()).size());
+	        dto.setMembers(roomIdToOthers.getOrDefault(room.getId(), List.of()));
 	        dtos.add(dto);
 	    }
 	    return dtos;
@@ -877,6 +895,19 @@ private final UserRepository userRepository;
 	        result.computeIfAbsent((Integer) row[0], k -> new HashSet<>()).add((Integer) row[1]);
 	    }
 	    return result;
+	}
+
+	/** 프로필 이미지 키 → 주소. 키가 없거나 주소를 만들 수 없으면 빈 값 (화면은 이름 첫 글자를 보여 줌) */
+	private String profileImageUrlOf(String profileImageKey) {
+	    if (profileImageKey == null || profileImageKey.isBlank()) {
+	        return "";
+	    }
+	    try {
+	        return s3Service.getFileUrl(profileImageKey);
+	    } catch (Exception e) {
+	        log.warn("[getChatRoomListWithUnreadCount] 프로필 이미지 주소 생성 실패 - key: {}", profileImageKey);
+	        return "";
+	    }
 	}
 
 	/** 보낸 사람이 지금 그 방 참여자가 아니면(나감) "알 수 없음" */
