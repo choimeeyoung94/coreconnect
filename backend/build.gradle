@@ -2,6 +2,7 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '3.3.5'
 	id 'io.spring.dependency-management' version '1.1.7'
+	id 'info.solidsoft.pitest' version '1.15.0'
 }
 
 group = 'com.goodee.coreconnect'
@@ -96,6 +97,31 @@ tasks.register('measure', Test) {
 		includeTags 'measure'
 	}
 	outputs.upToDateWhen { false } // 측정은 코드가 그대로여도 매번 다시 실행
+}
+
+// 변이 테스트: 서버 코드를 일부러 조금씩 바꿔서 평소 테스트가 잡아내는지 확인 (gradlew pitest, build에는 포함 안 됨)
+// 대상 하나만: gradlew pitest -PpitClasses=com.goodee.coreconnect.attendance.service.AttendanceServiceImpl
+pitest {
+	pitestVersion = '1.17.4'
+	junit5PluginVersion = '1.2.1'
+	targetClasses = (project.findProperty('pitClasses') ?: [
+		'com.goodee.coreconnect.attendance.service.AttendanceServiceImpl',
+		'com.goodee.coreconnect.common.notification.service.NotificationService',
+		'com.goodee.coreconnect.chat.service.ChatRoomServiceImpl'
+	].join(',')).split(',') as List
+	targetTests = [
+		'com.goodee.coreconnect.attendance.*',
+		'com.goodee.coreconnect.notification.*',
+		'com.goodee.coreconnect.chat.*',
+		'com.goodee.coreconnect.security.*' // 참여자 검사 같은 권한 코드는 이쪽 테스트가 확인
+	]
+	excludedGroups = ['measure'] // 측정 테스트는 오래 걸리고 평소 test에서도 건너뜀
+	timeoutConstInMillis = 180000 // 스프링 시작 시간이 테스트 시간에 들어가 '시간 초과'로 잘못 잡히지 않게 여유를 줌
+	threads = 2 // 스레드마다 MySQL·Redis 컨테이너를 따로 띄움
+	jvmArgs = ['-Duser.timezone=Asia/Seoul'] // test 태스크와 같은 시간대
+	useClasspathFile = true // Windows 명령줄 길이 제한 회피
+	timestampedReports = false
+	outputFormats = ['HTML', 'XML']
 }
 
 tasks.withType(JavaCompile) {
