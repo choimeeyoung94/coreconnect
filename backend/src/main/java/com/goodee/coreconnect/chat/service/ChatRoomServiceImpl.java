@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -92,15 +93,18 @@ private final UserRepository userRepository;
 	@Transactional
 	public ChatRoom createChatRoom(String roomName, List<Integer> userIds,  String email ) {
 		User drafter = findUserByEmail(email);
+		// 만든 사람은 요청에 없어도 항상 참여자 (없으면 자기가 볼 수 없는 방이 생김), 같은 사람은 한 번만
+		Set<Integer> memberIds = new LinkedHashSet<>(userIds);
+		memberIds.add(drafter.getId());
 		
-	    String roomType = (userIds.size() == 1) ? "alone" : "group";
+	    String roomType = (memberIds.size() == 2) ? "alone" : "group";
 	    Boolean favoriteStatus = false;
 		
 	    ChatRoom chatRoom = ChatRoom.createChatRoom(roomName, roomType, favoriteStatus, drafter);
 
 		chatRoomRepository.save(chatRoom);
 		
-		for (Integer userID : userIds) {
+		for (Integer userID : memberIds) {
 			User user = userRepository.findById(userID).orElseThrow();
 			ChatRoomUser chatRoomUser = ChatRoomUser.createChatRoomUser(user, chatRoom);
 			chatRoomUserRepository.save(chatRoomUser);

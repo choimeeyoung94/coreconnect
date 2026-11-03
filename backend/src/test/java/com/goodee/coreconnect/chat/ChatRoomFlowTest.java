@@ -123,7 +123,8 @@ class ChatRoomFlowTest extends AbstractIntegrationTest {
   @DisplayName("방 종류를 alone으로 바꾸면 저장된다")
   void updateRoomType_changesToAlone() {
     User owner = newUser("방장");
-    ChatRoom room = chatRoomService.createChatRoom("타입변경방", ids(owner, newUser("참여자")), owner.getEmail());
+    // 2명 방은 처음부터 alone이므로, group에서 바꾸는 것을 보려고 3명으로 만든다
+    ChatRoom room = chatRoomService.createChatRoom("타입변경방", ids(owner, newUser("참여자"), newUser("참여자2")), owner.getEmail());
     assertThat(room.getRoomType()).isEqualTo("group");
 
     chatRoomService.updateRoomType(room.getId(), "alone");

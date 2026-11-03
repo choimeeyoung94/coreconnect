@@ -165,9 +165,12 @@ private final UserRepository userRepository;
                     try {
                         webSocketDeliveryService.sendToUser(recipientId, payload);
                         
-                        // 전송 성공 후 sentYn 업데이트
-                        notificationRepository.findById(payload.getNotificationId())
-                        .ifPresent(n -> n.markSent(LocalDateTime.now()));
+                        // 전송 성공 후 sentYn 업데이트 (afterCommit에서는 기존 트랜잭션이 끝나 변경이 저장되지 않으므로 새 트랜잭션 사용)
+                        DefaultTransactionDefinition def = new DefaultTransactionDefinition();
+                        def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                        new TransactionTemplate(transactionManager, def).executeWithoutResult(status ->
+                            notificationRepository.findById(payload.getNotificationId())
+                                .ifPresent(n -> n.markSent(LocalDateTime.now())));
                         
                     } catch (Exception e) {
                         log.warn("[NotificationService][afterCommit] 로컬 전송 실패 recipientId={}: {}", recipientId, e.getMessage(), e);
