@@ -43,6 +43,11 @@ public interface ChatRoomUserRepository extends JpaRepository<ChatRoomUser, Inte
 	@Query("SELECT cru.chatRoom.id, cru.user.id FROM ChatRoomUser cru WHERE cru.chatRoom.id IN :chatRoomIds")
 	List<Object[]> findRoomIdAndUserIdByChatRoomIds(@Param("chatRoomIds") List<Integer> chatRoomIds);
 
+	/** 여러 방의 참여자 [방 id, 사용자 id, 이름, 프로필 이미지 키]를 한 번에 조회 (방 목록 프로필 사진용) */
+	@Query("SELECT cru.chatRoom.id, u.id, u.name, u.profileImageKey FROM ChatRoomUser cru JOIN cru.user u " +
+	       "WHERE cru.chatRoom.id IN :chatRoomIds ORDER BY cru.id")
+	List<Object[]> findMemberPreviewsByChatRoomIds(@Param("chatRoomIds") List<Integer> chatRoomIds);
+
 	/**
 	 * ⭐ 여러 채팅방의 참여자 수를 한 번에 조회
 	 * - N+1 문제 해결
